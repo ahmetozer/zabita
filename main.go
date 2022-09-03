@@ -50,12 +50,13 @@ func main() {
 	}
 
 	var err error
+	// Create `zabita` network interface
 	zabitaIf, err = water.New(config)
 	if err != nil {
 		log.Fatalf("error while creating new interface %e", err)
 	}
-	//
 
+	// Setup network interface with netlink lib.
 	zabitaNetlinkIf, err = netlink.LinkByName(config.Name)
 	if err != nil {
 		log.Fatalf("error while getting interface: %e", err)
@@ -66,6 +67,7 @@ func main() {
 	netlink.AddrAdd(zabitaNetlinkIf, addr6)
 	netlink.LinkSetUp(zabitaNetlinkIf)
 
+	// disable rp_filter for firewall interface to prevent packet drop.
 	err = os.WriteFile("/proc/sys/net/ipv4/conf/"+config.Name+"/rp_filter", []byte{48}, 0644)
 	if err != nil {
 		log.Fatalf("error while setting rp filter: %e", err)
@@ -79,6 +81,7 @@ func main() {
 
 	go WatchModules()
 
+	// Read packages from interface.
 	go func() {
 		var frame ethernet.Frame
 		for {
@@ -93,12 +96,13 @@ func main() {
 		}
 	}()
 
+	// Start packet processing if system is ready.
 	go func() {
 	packetLoop:
 		for {
 			select {
 			case <-listenStatus:
-				log.Printf("packet listening is stoping \n")
+				log.Printf("packet listening will stopped\n")
 				break packetLoop
 			case p := <-packet:
 				go func() {
@@ -107,6 +111,7 @@ func main() {
 							log.Println("firewall rule panic:", err)
 						}
 					}()
+					// packet processing function
 					zf.CheckFW(zabitaIf, p)
 				}()
 			case err := <-packetErr:
@@ -125,6 +130,8 @@ func main() {
 
 }
 
+// To detect changes on the rule file `zabita_rule.so` to start
+// reload process of
 func WatchModules() {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -155,6 +162,8 @@ func WatchModules() {
 		}
 	}
 }
+
+// Load external functions that is handles packet filtering.
 func loadModule() {
 	plug, err := plugin.Open(rulePath + "/zabita_rule.so")
 	if err != nil {
@@ -175,10 +184,13 @@ func loadModule() {
 	if err != nil {
 		log.Fatalf("err %e\n", err)
 	}
+
+	// Custom Main process of the rule
 	M.(func())()
 
 }
 
+// Re execute it self with replace previous process.
 func restartMainProcess() {
 	zabitaIf.Close()
 
